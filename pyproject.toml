@@ -1,0 +1,37 @@
+[project]
+name = "repeat"
+version = "0.1.0"
+description = "A bot that shortens your messages"
+authors = [
+    {name = "Anirudh R K", email = "arkulkarni2009@gmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.12"
+license = "Apache License 2.0"
+
+[tool.poetry.dependencies]
+python = ">=3.12" 
+google-adk = "^0.1.0"
+google-cloud-aiplatform = {extras = ["adk", "agent_engines"], version = "^1.42.1"} 
+
+firebase-admin = "^6.0.0"
+google-cloud-firestore = "^2.0.0"
+google-cloud-secret-manager = "^2.0.0"
+
+cloudpickle = "^3.0.0"
+pydantic = "^2.0.0"
+absl-py = "^2.1.0" 
+requests = "^2.31.0" 
+python-dotenv = "^1.1.0"
+
+[tool.poetry.scripts]
+repeat = "repeat:app"
+deploy-local = "deployment.local:main"
+deploy-remote = "deployment.remote:main"
+cleanup = "deployment.cleanup:cleanup_deployment"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+ 
