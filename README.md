@@ -9,4 +9,4 @@
 - Google cloud CLI(SDK) docs : [Link](https://cloud.google.com/sdk/docs)
 - Vertex AI docs : [Link](https://cloud.google.com/vertex-ai/generative-ai/docs/agent-engine/overview)
 
-** Notes : Add the service_account_key.json file in the intended location **
+**Notes : Add the service_account_key.json file in the intended location**
