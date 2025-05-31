@@ -16,5 +16,10 @@ app: FastAPI = get_fast_api_app(
     web=SERVE_WEB_INTERFACE,
 )
 
+@app.route("/health_check", methods=["GET"])
+def health_check():
+    """Health check endpoint to verify the service is running."""
+    return {"status": "ok", "message": "Service is running"}
+
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))

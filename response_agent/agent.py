@@ -7,15 +7,14 @@ from dotenv import load_dotenv
 import firebase_admin
 from firebase_admin import credentials, firestore
 import datetime
-import json # Import json to parse the secret content
-from google.cloud import secretmanager # Import Secret Manager client
+import json
+from google.cloud import secretmanager
 
-# Load environment variables from .env file (useful for local testing)
 load_dotenv()
 
-PROJECT_ID = "image-gen-34b6b" # Get project ID from env var, fallback to hardcoded
-SECRET_ID = "firebase-agents-creds" # Get secret ID from env var, fallback
-SECRET_VERSION_ID =  "latest" # Get secret version from env var, fallback
+PROJECT_ID = "image-gen-34b6b"
+SECRET_ID = "firebase-agents-creds"
+SECRET_VERSION_ID = "latest"
 
 # --- Function to Access Secret Manager ---
 def access_secret_version(project_id, secret_id, version_id):
@@ -52,7 +51,6 @@ if not firebase_admin._apps:
             except Exception as e_default:
                  print(f"ERROR initializing Firebase with application default credentials: {str(e_default)}")
                  print("Firebase initialization failed entirely.")
-
     else:
         print("Secret Manager credentials not available or fetching failed. Attempting application default credentials.")
         try:
@@ -65,89 +63,250 @@ if not firebase_admin._apps:
 db = None 
 if firebase_admin._apps: 
     try:
-        db = firestore.client(database_id="prompts-saved") # Use the database ID as needed
+        db = firestore.client(database_id="prompts-saved")
         print("Successfully connected to Firestore")
     except Exception as e:
         print(f"ERROR connecting to Firestore: {str(e)}")
         print("Firestore client could not be created.")
 
-def save_response_to_file_and_db(response_content: str, agent_name: str) -> str:
+# --- Tool Functions ---
+def display_saved_prompts() -> str:
     """
-    Writes the provided response content from a specific agent to a dedicated file and saves it to Firebase.
-
-    Args:
-        response_content (str): The actual text content of the response to be saved.
-        agent_name (str): The name of the agent (e.g., 'CEO', 'Senior_Manager', 'Specialist')
-                          whose response is being saved. This determines the filename and the database record.
-
+    Retrieves and displays all saved agent responses from the Firebase 'agent_responses' collection.
+    
     Returns:
-        str: A confirmation message indicating the file path where the response was saved or an error message.
+        str: A formatted string containing all saved prompts with agent names, timestamps, 
+             and response content, or an error message if retrieval fails.
     """
-
     try:
-        if isinstance(db, firestore.Client):
-             agent_responses_ref = db.collection('agent_responses')
-             add_result = agent_responses_ref.add({ 
-                 'agent_name': agent_name,
-                 'response_content': response_content,
-                 'created_at': firestore.SERVER_TIMESTAMP
-             })
-             print(f"Saved to Firestore with ID: {add_result[1].id}") 
-
-        return f"Successfully saved response from {agent_name} to Firebase database."
-
+        if not isinstance(db, firestore.Client):
+            return "Error: Firebase database connection not available."
+        
+        agent_responses_ref = db.collection('agent_responses')
+        docs = agent_responses_ref.order_by('created_at', direction=firestore.Query.DESCENDING).stream()
+        docs_list = list(docs)
+        
+        if not docs_list:
+            return "No saved prompts found in the database."
+        
+        formatted_output = "=== AVAILABLE PROMPTS FOR GRADING ===\n\n"
+        
+        for i, doc in enumerate(docs_list, 1):
+            doc_data = doc.to_dict()
+            agent_name = doc_data.get('agent_name', 'Unknown Agent')
+            response_content = doc_data.get('response_content', 'No content available')
+            created_at = doc_data.get('created_at')
+            
+            if created_at:
+                try:
+                    timestamp_str = created_at.strftime("%Y-%m-%d %H:%M:%S")
+                except:
+                    timestamp_str = "Unknown time"
+            else:
+                timestamp_str = "Unknown time"
+            
+            # Show first 100 characters of content as preview
+            content_preview = response_content[:100] + "..." if len(response_content) > 100 else response_content
+            
+            formatted_output += f"{i}. Agent: {agent_name} | Saved: {timestamp_str}\n"
+            formatted_output += f"   Preview: {content_preview}\n"
+            formatted_output += f"   Document ID: {doc.id}\n\n"
+        
+        return formatted_output
+        
     except Exception as e:
-        return f"Error saving response from {agent_name} to Firebase database: {str(e)}"
+        return f"Error retrieving saved prompts from Firebase database: {str(e)}"
 
-agent_ceo_parallel = LlmAgent(
-    name="CEO",
+def get_prompt_by_number(prompt_number: int) -> str:
+    """
+    Retrieves a specific prompt by its display number.
+    
+    Args:
+        prompt_number (int): The number of the prompt as shown in display_saved_prompts()
+        
+    Returns:
+        str: The full content of the selected prompt or an error message.
+    """
+    try:
+        if not isinstance(db, firestore.Client):
+            return "Error: Firebase database connection not available."
+        
+        agent_responses_ref = db.collection('agent_responses')
+        docs = agent_responses_ref.order_by('created_at', direction=firestore.Query.DESCENDING).stream()
+        docs_list = list(docs)
+        
+        if not docs_list:
+            return "No saved prompts found in the database."
+        
+        if prompt_number < 1 or prompt_number > len(docs_list):
+            return f"Invalid prompt number. Please select a number between 1 and {len(docs_list)}."
+        
+        selected_doc = docs_list[prompt_number - 1]
+        doc_data = selected_doc.to_dict()
+        
+        agent_name = doc_data.get('agent_name', 'Unknown Agent')
+        response_content = doc_data.get('response_content', 'No content available')
+        
+        return f"Selected Prompt from {agent_name}:\n\n{response_content}"
+        
+    except Exception as e:
+        return f"Error retrieving prompt: {str(e)}"
+
+# --- DISPLAY AGENT ---
+agent_display = LlmAgent(
+    name="Display_Agent",
     model="gemini-2.0-flash-exp",
-    description="The Chief Executive Officer...",
-    instruction="As the CEO, you operate at the highest strategic level. When responding to user queries about setting up an industry, consider the long-term implications, market positioning, and overall business strategy. Focus on high-level considerations like investment, scalability, and competitive advantages. You can also use the 'get_industry_insight' tool if the user asks for a specific industry insight.",
-    output_key="ceo_response",
-)
-
-agent_senior_manager_parallel = LlmAgent(
-    name="Senior_Manager",
-    model="gemini-2.0-flash-exp", 
-    description="A seasoned Senior Manager...",
-    instruction="As a Senior Manager, you bridge the gap between strategy and execution. When addressing user questions about setting up an industry, focus on operational aspects, supply chain considerations, regulatory requirements, and potential challenges in implementation.",
-    output_key="manager_response",
-)
-
-agent_specialist_parallel = LlmAgent(
-    name="Specialist",
-    model="gemini-2.0-flash-exp",
-    description="A highly skilled subject matter expert...",
-    instruction="As a Specialist in manufacturing, when responding to user inquiries about setting up an industry, provide detailed information on raw material sourcing, processing techniques, quality control, local expertise availability, and any specific technical considerations relevant to raw material production in that region.",
-    output_key="specialist_response",
-)
-
-gather_concurrently = ParallelAgent(
-    name="ConcurrentFetch",
-    sub_agents=[agent_ceo_parallel, agent_senior_manager_parallel, agent_specialist_parallel],
-)
-
-root_agent = Agent(
-    name="DisplayAndSaveAgent",
-    model="gemini-2.0-flash-exp",
-    sub_agents=[gather_concurrently],
-    description="This agent gathers information from CEO, Manager, and Specialist sub-agents, displays it, and saves specific responses to files and the database upon user request.",
+    description="Presents prompts to users in a numbered list and supports selection by number or description.",
     instruction=(
-        "Your primary role is to orchestrate the information flow and interact with the user.\n"
-        "Greet the user and explain that you will gather insights from three agents: CEO, Senior Manager, and Specialist. Then follow the steps given post this.\n"
-        "1. First, execute the 'ConcurrentFetch' parallel agent. This will run the CEO, Senior_Manager, and Specialist agents. Their responses will be available in your context under the keys 'ceo_response', 'manager_response', and 'specialist_response'.\n"
-        "2. Once you have the responses, don't synthesize any answers. You are to present them clearly to the user. Use bullet points or distinct sections, clearly indicating which response came from which agent (e.g., 'CEO Perspective:', 'Senior Manager Insights:', 'Specialist Details:').\n"
-        "3. After presenting the information, explicitly ask the user if they would like to save the response from any specific agent (e.g., 'Would you like me to save the response from the CEO, Senior Manager, or Specialist?').\n"
-        "4. *If and only if* the user confirms they want to save a response and specifies which one (e.g., 'Yes, save the CEO response', 'Save the manager's part'):\n"
-        "   a. Identify the target agent name ('CEO', 'Senior_Manager', or 'Specialist').\n"
-        "   b. Retrieve the complete text of that agent's response from your context using the corresponding key ('ceo_response', 'manager_response', or 'specialist_response').\n"
-        "   c. Call the save_response_to_file_and_db tool. \n"
-        "   d. Pass the retrieved text as the response_content argument.\n"
-        "   e. Pass the identified agent name (e.g., 'CEO') as the agent_name argument.\n"
-        "   f. Report the outcome (success or error message returned by the tool) back to the user.\n"
-        "5. *Crucially: Do NOT run the 'ConcurrentFetch' agent again just to save a file.* Use the responses you already obtained in step 1.\n"
-        "6. If the user asks a follow-up question or provides a new query not related to saving, handle it appropriately, potentially by re-running 'ConcurrentFetch' if new perspectives are needed for a new topic. Be aware that the CEO agent has access to the 'get_industry_insight' tool if the user asks for specific industry insights."
+        "Your role is to display prompts from the database in a user-friendly numbered format. "
+        "When asked to show prompts, use the display_saved_prompts tool to get all prompts. "
+        "Present them clearly with numbers for easy selection. "
+        "do not present the document ID in the display, only the agent name, timestamp, and content preview. "
+        "When a user selects a prompt by number, use the get_prompt_by_number tool to retrieve the full content. "
+        "Always format your responses clearly with proper numbering and ask users to pick by number."
     ),
-    tools=[save_response_to_file_and_db], 
+    output_key="display_response",
+    tools=[display_saved_prompts, get_prompt_by_number],
+)
+
+agent_safety_officer = LlmAgent(
+    name="Safety_Officer_Agent",
+    model="gemini-2.0-flash-exp",
+    description="Evaluates the safety implications and risk awareness of prompts.",
+    instruction=(
+        "You are a safety expert analyzing prompts for safety considerations. "
+        "Rate each prompt on a scale of 1-10 based on: "
+        "• Safety awareness and risk assessment "
+        "• Harm prevention measures "
+        "• Emergency response considerations "
+        "• Risk mitigation strategies "
+        "Always provide your rating in this format: "
+        "'SAFETY SCORE: X/10 - [brief safety feedback and reasoning]' "
+        "Focus on identifying potential hazards and safety improvements."
+    ),
+    output_key="safety_response",
+)
+
+agent_information_designer = LlmAgent(
+    name="Information_Designer_Agent",
+    model="gemini-2.0-flash-exp",
+    description="Evaluates information clarity and communication quality of prompts.",
+    instruction=(
+        "You are an information design expert evaluating prompts for communication effectiveness. "
+        "Rate each prompt on a scale of 1-10 based on: "
+        "• Clarity of language and instructions "
+        "• Information structure and organization "
+        "• Readability and appropriate tone "
+        "• Logical flow of information "
+        "Always provide your rating in this format: "
+        "'INFO DESIGN SCORE: X/10 - [rationale for clarity and communication quality]' "
+        "Focus on how well the information is presented and understood."
+    ),
+    output_key="info_response",
+)
+
+agent_coordination_planner = LlmAgent(
+    name="Coordination_Planner_Agent",
+    model="gemini-2.0-flash-exp",
+    description="Evaluates coordination logic, role clarity, and task planning in prompts.",
+    instruction=(
+        "You are a coordination expert analyzing prompts for task management effectiveness. "
+        "Rate each prompt on a scale of 1-10 based on: "
+        "• Clarity in task delegation and role definition "
+        "• Time and resource management considerations "
+        "• Workflow coordination and dependencies "
+        "• Team collaboration aspects "
+        "Always provide your rating in this format: "
+        "'COORDINATION SCORE: X/10 - [justification for coordination effectiveness]' "
+        "Focus on how well the prompt facilitates teamwork and task management."
+    ),
+    output_key="coordination_response",
+)
+
+# --- PARALLEL GRADING AGENT ---
+grading_parallel_agent = ParallelAgent(
+    name="ConcurrentGrading",
+    sub_agents=[ agent_safety_officer, agent_information_designer, agent_coordination_planner],
+    description="Runs all grading agents in parallel to evaluate a selected prompt.",
+)
+
+# --- COMPOSITE SCORING AGENT ---
+agent_composite_scorer = LlmAgent(
+    name="Composite_Scorer_Agent",
+    model="gemini-2.0-flash-exp",
+    description="Combines feedback from all grading agents and creates a comprehensive summary.",
+    instruction=(
+        "You are responsible for creating a final comprehensive grading report. "
+        "You will receive responses from Designer, Safety Officer, Information Designer, and Coordination Planner agents. "
+        "Your task is to: "
+        "1. Extract the numeric scores from each agent's response "
+        "2. Calculate the average score "
+        "3. Identify the strongest and weakest aspects "
+        "4. Create a final summary report in this format: "
+        "```"
+        "=== COMPREHENSIVE GRADING REPORT ==="
+        "Final Average Rating: X.X/10"
+        ""
+        "Individual Scores:"
+        "• Design Quality: X/10"
+        "• Safety Considerations: X/10"
+        "• Information Clarity: X/10"
+        "• Coordination Planning: X/10"
+        ""
+        "Strengths: [highlight best aspects]"
+        "Areas for Improvement: [identify weaknesses]"
+        ""
+        "Overall Assessment: [brief overall evaluation]"
+        "```"
+        "Be objective and provide actionable insights."
+    ),
+    output_key="composite_response",
+)
+
+# --- ROOT AGENT - DISPLAY GRADING AGENT ---
+root_agent = Agent(
+    name="Display_Grading_Agent",
+    model="gemini-2.0-flash-exp", 
+    sub_agents=[agent_display, grading_parallel_agent, agent_composite_scorer],
+    description="Main orchestrator that greets users, manages prompt display, coordinates grading, and provides final reports.",
+    instruction=(
+        "You are the main Display Grading Agent - a friendly orchestrator for the prompt grading system. "
+        ""
+        "GREETING PHASE:"
+        "1. Start with a warm, varied greeting like:"
+        "   • 'Hello! 👋 How are you today?'"
+        "   • 'Hey there! What would you like to do?'"
+        "   • 'Welcome to the Prompt Grading System!'"
+        ""
+        "2. Ask the user what they'd like to do:"
+        "   • 'Would you like to grade all prompts or select specific ones?'"
+        "   • 'How can I help you with prompt grading today?'"
+        ""
+        "WORKFLOW MANAGEMENT:"
+        "3. Based on user response:"
+        "   • If 'grade all' or 'show all': Use Display Agent to show all prompts"
+        "   • If 'grade specific' or 'select few': Use Display Agent for selection"
+        ""
+        "4. When user selects a prompt (e.g., 'Prompt 2', 'number 3'):"
+        "   • Use Display Agent to get the full prompt content"
+        "   • Pass the selected prompt to the 'ConcurrentGrading' parallel agent"
+        "   • Wait for all grading responses (designer_response, safety_response, info_response, coordination_response)"
+        ""
+        "5. After receiving grading responses:"
+        "   • Pass all responses to the Composite Scorer Agent for final analysis"
+        "   • Present the comprehensive report to the user"
+        ""
+        "6. Ask if they want to:"
+        "   • Grade another prompt"
+        "   • See the detailed individual agent feedback"
+        "   • Get recommendations for improvement"
+        ""
+        "IMPORTANT RULES:"
+        "• Always be friendly and helpful"
+        "• Don't run grading until a specific prompt is selected"
+        "• Present information clearly with proper formatting"
+        "• Handle errors gracefully and offer alternatives"
+        "• Keep the user engaged throughout the process"
+    ),
+    tools=[],
 )
