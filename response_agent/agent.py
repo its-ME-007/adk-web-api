@@ -185,44 +185,88 @@ agent_display = LlmAgent(
     tools=[display_saved_prompts, get_prompt_by_number],
 )
 
-agent_safety_officer = LlmAgent(
-    name="Safety_Officer_Agent",
+agent_technical_feasibility = Agent(
+    name="Technical_Feasibility_Agent",
     model="gemini-2.0-flash-exp",
-    description="Evaluates the safety implications and risk awareness of prompts.",
+    description="Evaluates the technical viability and implementation aspects of prompts.",
     instruction=(
-        "You are a safety expert analyzing prompts for safety considerations. "
-        "Rate each prompt on a scale of 1-10: X/10 - [brief safety feedback]."
-        "Focus on identifying potential hazards and safety improvements."
+        "You are a Technical Feasibility Grading Agent. "
+        "Evaluate prompts based on technical implementation feasibility. "
+        ""
+        "GRADING CRITERIA (Score 1-10):"
+        "• Technical Complexity: Is the request technically achievable with current technology?"
+        "• Resource Requirements: Are the computational/technical resources reasonable?"
+        "• Implementation Clarity: Is the technical approach clear and well-defined?"
+        "• Scalability: Can the solution scale effectively?"
+        "• Technical Risk Assessment: What are the potential technical challenges?"
+        ""
+        "RESPONSE FORMAT:"
+        "TECHNICAL FEASIBILITY SCORE: X/10"
+        "TECHNICAL FEASIBILITY FEEDBACK: [Provide specific technical insights, "
+        "implementation considerations, potential challenges, and recommendations "
+        "for technical improvement. Be concise but thorough.]"
+        ""
+        "Focus on practical technical aspects and real-world implementation viability."
     ),
-    output_key="safety_response",
+    tools=[],
 )
 
-agent_information_designer = LlmAgent(
-    name="Information_Designer_Agent",
+agent_industry_relevance = Agent(
+    name="Industry_Relevance_Agent", 
     model="gemini-2.0-flash-exp",
-    description="Evaluates information clarity and communication quality of prompts.",
+    description="Assesses market relevance and industry application potential of prompts.",
     instruction=(
-        "You are an information design expert evaluating prompts on a scale of 1-10: X/10 - [rationale for clarity]."
-        "Focus on how well the information is presented and understood."
+        "You are an Industry Relevance Grading Agent. "
+        "Evaluate prompts based on their relevance to current industry needs and market demands. "
+        ""
+        "GRADING CRITERIA (Score 1-10):"
+        "• Market Demand: Does this address a real industry need or pain point?"
+        "• Business Value: What's the potential ROI and business impact?"
+        "• Industry Trends: How well does this align with current industry trends?"
+        "• Competitive Advantage: Does this provide meaningful differentiation?"
+        "• Adoption Potential: How likely are businesses to adopt this solution?"
+        ""
+        "RESPONSE FORMAT:"
+        "INDUSTRY RELEVANCE SCORE: X/10"
+        "INDUSTRY RELEVANCE FEEDBACK: [Provide specific market insights, "
+        "industry applications, competitive landscape analysis, and business "
+        "value assessment. Include relevant industry examples where applicable.]"
+        ""
+        "Focus on commercial viability and real-world business applications."
     ),
-    output_key="info_response",
+    tools=[],
 )
 
-agent_coordination_planner = LlmAgent(
-    name="Coordination_Planner_Agent",
-    model="gemini-2.0-flash-exp",
-    description="Evaluates coordination logic, role clarity, and task planning in prompts.",
+agent_innovation = Agent(
+    name="Innovation_Agent",
+    model="gemini-2.0-flash-exp", 
+    description="Evaluates creativity, novelty, and innovative aspects of prompts.",
     instruction=(
-        "You are a coordination expert analyzing prompts on a scale of 1-10: X/10 - [justification for coordination]."
-        "Focus on how well the prompt facilitates teamwork and task management."
+        "You are an Innovation Grading Agent. "
+        "Evaluate prompts based on their innovative potential and creative approach. "
+        ""
+        "GRADING CRITERIA (Score 1-10):"
+        "• Novelty: How original and unique is this approach?"
+        "• Creative Problem-Solving: Does it show innovative thinking?"
+        "• Disruptive Potential: Could this change existing paradigms?"
+        "• Cross-Domain Innovation: Does it combine ideas from different fields?"
+        "• Future Impact: What's the potential for long-term innovation?"
+        ""
+        "RESPONSE FORMAT:"
+        "INNOVATION SCORE: X/10"
+        "INNOVATION FEEDBACK: [Provide specific innovation insights, "
+        "creative aspects, potential for disruption, and suggestions for "
+        "enhancing innovative elements. Highlight unique approaches.]"
+        ""
+        "Focus on creative thinking, originality, and transformative potential."
     ),
-    output_key="coordination_response",
+    tools=[],
 )
 
 # --- PARALLEL GRADING AGENT ---
 grading_parallel_agent = ParallelAgent(
     name="ConcurrentGrading",
-    sub_agents=[agent_safety_officer, agent_information_designer, agent_coordination_planner],
+    sub_agents=[agent_technical_feasibility,agent_industry_relevance ,agent_innovation ],
     description="Runs all grading agents in parallel to evaluate a selected prompt.",
 )
 
