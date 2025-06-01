@@ -9,6 +9,7 @@ from firebase_admin import credentials, firestore
 import datetime
 import json
 from google.cloud import secretmanager
+from typing import List, Dict, Any
 
 load_dotenv()
 
@@ -46,11 +47,11 @@ if not firebase_admin._apps:
             print(f"ERROR initializing Firebase with Secret Manager credentials: {str(e)}")
             print("Attempting to initialize Firebase with application default credentials.")
             try:
-                 firebase_admin.initialize_app()
-                 print("Successfully initialized Firebase with application default credentials.")
+                firebase_admin.initialize_app()
+                print("Successfully initialized Firebase with application default credentials.")
             except Exception as e_default:
-                 print(f"ERROR initializing Firebase with application default credentials: {str(e_default)}")
-                 print("Firebase initialization failed entirely.")
+                print(f"ERROR initializing Firebase with application default credentials: {str(e_default)}")
+                print("Firebase initialization failed entirely.")
     else:
         print("Secret Manager credentials not available or fetching failed. Attempting application default credentials.")
         try:
@@ -60,8 +61,8 @@ if not firebase_admin._apps:
             print(f"ERROR initializing Firebase with application default credentials: {str(e_default)}")
             print("Firebase initialization failed entirely.")
 
-db = None 
-if firebase_admin._apps: 
+db = None
+if firebase_admin._apps:
     try:
         db = firestore.client(database_id="prompts-saved")
         print("Successfully connected to Firestore")
@@ -73,95 +74,110 @@ if firebase_admin._apps:
 def display_saved_prompts() -> str:
     """
     Retrieves and displays all saved agent responses from the Firebase 'agent_responses' collection.
-    
+
     Returns:
-        str: A formatted string containing all saved prompts with agent names, timestamps, 
-             and response content, or an error message if retrieval fails.
+        str: A formatted string containing all saved prompts with agent names, timestamps,
+             and response content previews.
     """
     try:
         if not isinstance(db, firestore.Client):
             return "Error: Firebase database connection not available."
-        
+
         agent_responses_ref = db.collection('agent_responses')
         docs = agent_responses_ref.order_by('created_at', direction=firestore.Query.DESCENDING).stream()
         docs_list = list(docs)
-        
+
         if not docs_list:
             return "No saved prompts found in the database."
-        
+
         formatted_output = "=== AVAILABLE PROMPTS FOR GRADING ===\n\n"
-        
+
         for i, doc in enumerate(docs_list, 1):
             doc_data = doc.to_dict()
             agent_name = doc_data.get('agent_name', 'Unknown Agent')
             response_content = doc_data.get('response_content', 'No content available')
             created_at = doc_data.get('created_at')
-            
-            if created_at:
-                try:
-                    timestamp_str = created_at.strftime("%Y-%m-%d %H:%M:%S")
-                except:
-                    timestamp_str = "Unknown time"
-            else:
-                timestamp_str = "Unknown time"
-            
-            # Show first 100 characters of content as preview
+
+            timestamp_str = created_at.strftime("%Y-%m-%d %H:%M:%S") if created_at else "Unknown time"
             content_preview = response_content[:100] + "..." if len(response_content) > 100 else response_content
-            
+
             formatted_output += f"{i}. Agent: {agent_name} | Saved: {timestamp_str}\n"
-            formatted_output += f"   Preview: {content_preview}\n"
-            formatted_output += f"   Document ID: {doc.id}\n\n"
-        
+            formatted_output += f"   Preview: {content_preview}\n\n"
+
         return formatted_output
-        
+
     except Exception as e:
         return f"Error retrieving saved prompts from Firebase database: {str(e)}"
 
 def get_prompt_by_number(prompt_number: int) -> str:
     """
     Retrieves a specific prompt by its display number.
-    
+
     Args:
         prompt_number (int): The number of the prompt as shown in display_saved_prompts()
-        
+
     Returns:
         str: The full content of the selected prompt or an error message.
     """
     try:
         if not isinstance(db, firestore.Client):
             return "Error: Firebase database connection not available."
-        
+
         agent_responses_ref = db.collection('agent_responses')
         docs = agent_responses_ref.order_by('created_at', direction=firestore.Query.DESCENDING).stream()
         docs_list = list(docs)
-        
+
         if not docs_list:
             return "No saved prompts found in the database."
-        
+
         if prompt_number < 1 or prompt_number > len(docs_list):
             return f"Invalid prompt number. Please select a number between 1 and {len(docs_list)}."
-        
+
         selected_doc = docs_list[prompt_number - 1]
         doc_data = selected_doc.to_dict()
-        
+
         agent_name = doc_data.get('agent_name', 'Unknown Agent')
         response_content = doc_data.get('response_content', 'No content available')
-        
+
         return f"Selected Prompt from {agent_name}:\n\n{response_content}"
-        
+
     except Exception as e:
         return f"Error retrieving prompt: {str(e)}"
+
+def create_score_table(safety_score: str, info_score: str, coordination_score: str) -> str:
+    """
+    Creates a markdown table with agent scores.
+    
+    Args:
+        safety_score (str): Safety officer score (e.g., "8/10")
+        info_score (str): Information designer score (e.g., "7/10")
+        coordination_score (str): Coordination planner score (e.g., "9/10")
+    
+    Returns:
+        str: Formatted markdown table with scores
+    """
+    try:
+        table = f"""
+| Agent | Score |
+|-------|-------|
+| Safety Officer | {safety_score} |
+| Information Designer | {info_score} |
+| Coordination Planner | {coordination_score} |
+"""
+        return table.strip()
+    except Exception as e:
+        return f"Error creating score table: {str(e)}"
 
 # --- DISPLAY AGENT ---
 agent_display = LlmAgent(
     name="Display_Agent",
     model="gemini-2.0-flash-exp",
-    description="Presents prompts to users in a numbered list and supports selection by number or description.",
+    description="Presents prompts to users in a numbered list and supports selection by number.",
     instruction=(
         "Your role is to display prompts from the database in a user-friendly numbered format. "
         "When asked to show prompts, use the display_saved_prompts tool to get all prompts. "
         "Present them clearly with numbers for easy selection. "
-        "do not present the document ID in the display, only the agent name, timestamp, and content preview. "
+        "Do not present the document ID in the display, only the agent name, timestamp, and content preview. "
         "When a user selects a prompt by number, use the get_prompt_by_number tool to retrieve the full content. "
         "Always format your responses clearly with proper numbering and ask users to pick by number."
     ),
@@ -175,13 +191,7 @@ agent_safety_officer = LlmAgent(
     description="Evaluates the safety implications and risk awareness of prompts.",
     instruction=(
         "You are a safety expert analyzing prompts for safety considerations. "
-        "Rate each prompt on a scale of 1-10 based on: "
-        "• Safety awareness and risk assessment "
-        "• Harm prevention measures "
-        "• Emergency response considerations "
-        "• Risk mitigation strategies "
-        "Always provide your rating in this format: "
-        "'SAFETY SCORE: X/10 - [brief safety feedback and reasoning]' "
+        "Rate each prompt on a scale of 1-10: X/10 - [brief safety feedback]."
         "Focus on identifying potential hazards and safety improvements."
     ),
     output_key="safety_response",
@@ -192,14 +202,7 @@ agent_information_designer = LlmAgent(
     model="gemini-2.0-flash-exp",
     description="Evaluates information clarity and communication quality of prompts.",
     instruction=(
-        "You are an information design expert evaluating prompts for communication effectiveness. "
-        "Rate each prompt on a scale of 1-10 based on: "
-        "• Clarity of language and instructions "
-        "• Information structure and organization "
-        "• Readability and appropriate tone "
-        "• Logical flow of information "
-        "Always provide your rating in this format: "
-        "'INFO DESIGN SCORE: X/10 - [rationale for clarity and communication quality]' "
+        "You are an information design expert evaluating prompts on a scale of 1-10: X/10 - [rationale for clarity]."
         "Focus on how well the information is presented and understood."
     ),
     output_key="info_response",
@@ -210,14 +213,7 @@ agent_coordination_planner = LlmAgent(
     model="gemini-2.0-flash-exp",
     description="Evaluates coordination logic, role clarity, and task planning in prompts.",
     instruction=(
-        "You are a coordination expert analyzing prompts for task management effectiveness. "
-        "Rate each prompt on a scale of 1-10 based on: "
-        "• Clarity in task delegation and role definition "
-        "• Time and resource management considerations "
-        "• Workflow coordination and dependencies "
-        "• Team collaboration aspects "
-        "Always provide your rating in this format: "
-        "'COORDINATION SCORE: X/10 - [justification for coordination effectiveness]' "
+        "You are a coordination expert analyzing prompts on a scale of 1-10: X/10 - [justification for coordination]."
         "Focus on how well the prompt facilitates teamwork and task management."
     ),
     output_key="coordination_response",
@@ -226,7 +222,7 @@ agent_coordination_planner = LlmAgent(
 # --- PARALLEL GRADING AGENT ---
 grading_parallel_agent = ParallelAgent(
     name="ConcurrentGrading",
-    sub_agents=[ agent_safety_officer, agent_information_designer, agent_coordination_planner],
+    sub_agents=[agent_safety_officer, agent_information_designer, agent_coordination_planner],
     description="Runs all grading agents in parallel to evaluate a selected prompt.",
 )
 
@@ -234,21 +230,20 @@ grading_parallel_agent = ParallelAgent(
 agent_composite_scorer = LlmAgent(
     name="Composite_Scorer_Agent",
     model="gemini-2.0-flash-exp",
-    description="Combines feedback from all grading agents and creates a comprehensive summary.",
+    description="Combines feedback from all grading agents and creates comprehensive summaries or tabular rankings.",
     instruction=(
-        "You are responsible for creating a final comprehensive grading report. "
-        "You will receive responses from Designer, Safety Officer, Information Designer, and Coordination Planner agents. "
-        "Your task is to: "
-        "1. Extract the numeric scores from each agent's response "
-        "2. Calculate the average score "
-        "3. Identify the strongest and weakest aspects "
+        "You are responsible for creating grading reports in two formats: "
+        ""
+        "FORMAT 1 - COMPREHENSIVE REPORT (when detailed analysis is requested):"
+        "1. Extract the numeric scores from each agent's response. "
+        "2. Calculate the average score. "
+        "3. Identify the strongest and weakest aspects based on the feedback. "
         "4. Create a final summary report in this format: "
         "```"
         "=== COMPREHENSIVE GRADING REPORT ==="
         "Final Average Rating: X.X/10"
         ""
         "Individual Scores:"
-        "• Design Quality: X/10"
         "• Safety Considerations: X/10"
         "• Information Clarity: X/10"
         "• Coordination Planning: X/10"
@@ -258,55 +253,60 @@ agent_composite_scorer = LlmAgent(
         ""
         "Overall Assessment: [brief overall evaluation]"
         "```"
+        ""
+        "FORMAT 2 - TABULAR RANKING (when table format is requested):"
+        "Use the create_score_table tool by passing the individual scores as parameters. "
+        "Extract just the score portion (e.g., '8/10') from each agent's response and pass them to the tool."
+        ""
         "Be objective and provide actionable insights."
     ),
     output_key="composite_response",
+    tools=[create_score_table],
 )
 
 # --- ROOT AGENT - DISPLAY GRADING AGENT ---
 root_agent = Agent(
     name="Display_Grading_Agent",
-    model="gemini-2.0-flash-exp", 
+    model="gemini-2.0-flash-exp",
     sub_agents=[agent_display, grading_parallel_agent, agent_composite_scorer],
     description="Main orchestrator that greets users, manages prompt display, coordinates grading, and provides final reports.",
     instruction=(
         "You are the main Display Grading Agent - a friendly orchestrator for the prompt grading system. "
         ""
         "GREETING PHASE:"
-        "1. Start with a warm, varied greeting like:"
-        "   • 'Hello! 👋 How are you today?'"
-        "   • 'Hey there! What would you like to do?'"
-        "   • 'Welcome to the Prompt Grading System!'"
-        ""
-        "2. Ask the user what they'd like to do:"
-        "   • 'Would you like to grade all prompts or select specific ones?'"
-        "   • 'How can I help you with prompt grading today?'"
+        "1. Start with a warm, varied greeting."
+        "2. Ask the user what they'd like to do (e.g., 'grade all', 'select specific')."
         ""
         "WORKFLOW MANAGEMENT:"
-        "3. Based on user response:"
-        "   • If 'grade all' or 'show all': Use Display Agent to show all prompts"
-        "   • If 'grade specific' or 'select few': Use Display Agent for selection"
+        "3. Based on user response, use Display Agent to show or select prompts."
+        "4. When a user selects a prompt by number:"
+        "   a. Use Display Agent to get the full prompt content."
+        "   b. Pass the selected prompt to 'ConcurrentGrading'."
+        "   c. Wait for all grading responses (safety_response, info_response, coordination_response)."
         ""
-        "4. When user selects a prompt (e.g., 'Prompt 2', 'number 3'):"
-        "   • Use Display Agent to get the full prompt content"
-        "   • Pass the selected prompt to the 'ConcurrentGrading' parallel agent"
-        "   • Wait for all grading responses (designer_response, safety_response, info_response, coordination_response)"
+        "5. Present the initial grading results with scores on one line and brief feedback on the next line for each agent."
+        "   Format as: '[AGENT NAME] SCORE: X/10\n[AGENT NAME] FEEDBACK: [brief feedback]'"
         ""
-        "5. After receiving grading responses:"
-        "   • Pass all responses to the Composite Scorer Agent for final analysis"
-        "   • Present the comprehensive report to the user"
+        "6. Ask the user: 'Would you like to see the grading results in a table or a detailed composite report?'"
         ""
-        "6. Ask if they want to:"
-        "   • Grade another prompt"
-        "   • See the detailed individual agent feedback"
-        "   • Get recommendations for improvement"
+        "7. If the user asks for 'table':"
+        "   a. Extract the individual scores (just the 'X/10' portion) from safety_response, info_response, and coordination_response."
+        "   b. Pass these scores as parameters to the Composite Scorer Agent, which will use its create_score_table tool."
+        "   c. Present the tabular output to the user."
+        ""
+        "8. If the user asks for 'detailed report':"
+        "   a. Pass all grading responses to the Composite Scorer Agent for comprehensive analysis."
+        "   b. Present the comprehensive report to the user."
+        ""
+        "9. Ask if they want to grade another prompt or have further questions."
         ""
         "IMPORTANT RULES:"
-        "• Always be friendly and helpful"
-        "• Don't run grading until a specific prompt is selected"
-        "• Present information clearly with proper formatting"
-        "• Handle errors gracefully and offer alternatives"
-        "• Keep the user engaged throughout the process"
+        "• Always be friendly and helpful."
+        "• Don't run grading until a specific prompt is selected."
+        "• Present information clearly with proper formatting."
+        "• Handle errors gracefully and offer alternatives."
+        "• Keep the user engaged."
+        "• When requesting table format, pass the individual scores to the Composite Scorer Agent."
     ),
     tools=[],
 )
