@@ -77,7 +77,7 @@ def save_response_to_file_and_db(response_content: str, agent_name: str) -> str:
 
     Args:
         response_content (str): The actual text content of the response to be saved.
-        agent_name (str): The name of the agent (e.g., 'CEO', 'Senior_Manager', 'Specialist')
+        agent_name (str): The name of the agent (e.g., 'Information_Designer', 'Safety_Officer', 'Coordination_Planner')
                           whose response is being saved. This determines the filename and the database record.
 
     Returns:
@@ -98,56 +98,56 @@ def save_response_to_file_and_db(response_content: str, agent_name: str) -> str:
 
     except Exception as e:
         return f"Error saving response from {agent_name} to Firebase database: {str(e)}"
-
-agent_ceo_parallel = LlmAgent(
-    name="CEO",
+    
+agent_information_designer_parallel = LlmAgent(
+    name="Information_Designer",
     model="gemini-2.0-flash-exp",
-    description="The Chief Executive Officer...",
-    instruction="As the CEO, you operate at the highest strategic level. When responding to user queries about setting up an industry, consider the long-term implications, market positioning, and overall business strategy. Focus on high-level considerations like investment, scalability, and competitive advantages. You can also use the 'get_industry_insight' tool if the user asks for a specific industry insight.",
-    output_key="ceo_response",
+    description="An AI agent that ensures interface clarity by prioritizing essential information, reducing cognitive load, and organizing content for effective decision-making.",
+    instruction="Focus on helping the user design a clean, readable interface. Suggest ways to highlight critical data, reduce screen clutter, and enhance usability under high-pressure conditions.",
+    output_key="info_response",
 )
 
-agent_senior_manager_parallel = LlmAgent(
-    name="Senior_Manager",
-    model="gemini-2.0-flash-exp", 
-    description="A seasoned Senior Manager...",
-    instruction="As a Senior Manager, you bridge the gap between strategy and execution. When addressing user questions about setting up an industry, focus on operational aspects, supply chain considerations, regulatory requirements, and potential challenges in implementation.",
-    output_key="manager_response",
+agent_safety_officer_parallel = LlmAgent(
+    name="Safety_Officer",
+    model="gemini-2.0-flash-exp",
+    description="An AI agent responsible for identifying potential safety risks and ensuring the interface supports real-time safety monitoring and emergency responses.",
+    instruction="Prompt the user to consider real-world safety hazards. Suggest necessary alerts, overrides, and interlocks that should be visible on the HMI to support operator safety.",
+    output_key="safety_response",
 )
 
-agent_specialist_parallel = LlmAgent(
-    name="Specialist",
+agent_coordination_planner_parallel = LlmAgent(
+    name="Coordination_Planner",
     model="gemini-2.0-flash-exp",
-    description="A highly skilled subject matter expert...",
-    instruction="As a Specialist in manufacturing, when responding to user inquiries about setting up an industry, provide detailed information on raw material sourcing, processing techniques, quality control, local expertise availability, and any specific technical considerations relevant to raw material production in that region.",
-    output_key="specialist_response",
+    description="An AI agent focused on timing, sequencing, and dependencies between robots and production stages to ensure smooth task coordination.",
+    instruction="Guide the user in thinking through how the HMI can help manage inter-robot timing, production delays, or task handoffs. Suggest synchronization features or warnings for disrupted flows.",
+    output_key="coordination_response",
 )
 
 gather_concurrently = ParallelAgent(
     name="ConcurrentFetch",
-    sub_agents=[agent_ceo_parallel, agent_senior_manager_parallel, agent_specialist_parallel],
+    sub_agents=[agent_information_designer_parallel, agent_safety_officer_parallel,agent_coordination_planner_parallel ],
 )
 
 root_agent = Agent(
     name="DisplayAndSaveAgent",
     model="gemini-2.0-flash-exp",
     sub_agents=[gather_concurrently],
-    description="This agent gathers information from CEO, Manager, and Specialist sub-agents, displays it, and saves specific responses to files and the database upon user request.",
+    description="This agent gathers information from Information Designer, Safety Officer, and Coordination Planner sub-agents, displays it, and saves specific responses to files and the database upon user request.",
     instruction=(
         "Your primary role is to orchestrate the information flow and interact with the user.\n"
-        "Greet the user and explain that you will gather insights from three agents: CEO, Senior Manager, and Specialist. Then follow the steps given post this.\n"
-        "1. First, execute the 'ConcurrentFetch' parallel agent. This will run the CEO, Senior_Manager, and Specialist agents. Their responses will be available in your context under the keys 'ceo_response', 'manager_response', and 'specialist_response'.\n"
-        "2. Once you have the responses, don't synthesize any answers. You are to present them clearly to the user. Use bullet points or distinct sections, clearly indicating which response came from which agent (e.g., 'CEO Perspective:', 'Senior Manager Insights:', 'Specialist Details:').\n"
-        "3. After presenting the information, explicitly ask the user if they would like to save the response from any specific agent (e.g., 'Would you like me to save the response from the CEO, Senior Manager, or Specialist?').\n"
-        "4. *If and only if* the user confirms they want to save a response and specifies which one (e.g., 'Yes, save the CEO response', 'Save the manager's part'):\n"
-        "   a. Identify the target agent name ('CEO', 'Senior_Manager', or 'Specialist').\n"
-        "   b. Retrieve the complete text of that agent's response from your context using the corresponding key ('ceo_response', 'manager_response', or 'specialist_response').\n"
+        "Greet the user and explain that you will gather insights from three agents: Information Designer, Safety Officer, and Coordination Planner. Then follow the steps given post this.\n"
+        "1. First, execute the 'ConcurrentFetch' parallel agent. This will run the Information_Designer, Safety_Officer, and Coordination_Planner agents. Their responses will be available in your context under the keys 'info_response', 'safety_response', and 'coordination_response'.\n"
+        "2. Once you have the responses, don't synthesize any answers. You are to present them clearly to the user. Use bullet points or distinct sections, clearly indicating which response came from which agent (e.g., 'Information Designer Perspective:', 'Safety Officer Insights:', 'Coordination Planner Details:').\n"
+        "3. After presenting the information, explicitly ask the user if they would like to save the response from any specific agent (e.g., 'Would you like me to save the response from the Information Designer, Safety Officer, or Coordination Planner?').\n"
+        "4. *If and only if* the user confirms they want to save a response and specifies which one (e.g., 'Yes, save the Information Designer response', 'Save the Safety Officer's part'):\n"
+        "   a. Identify the target agent name ('Information_Designer', 'Safety_Officer', or 'Coordination_Planner').\n"
+        "   b. Retrieve the complete text of that agent's response from your context using the corresponding key ('info_response', 'safety_response', or 'coordination_response').\n"
         "   c. Call the save_response_to_file_and_db tool. \n"
         "   d. Pass the retrieved text as the response_content argument.\n"
-        "   e. Pass the identified agent name (e.g., 'CEO') as the agent_name argument.\n"
+        "   e. Pass the identified agent name (e.g., 'Information_Designer') as the agent_name argument.\n"
         "   f. Report the outcome (success or error message returned by the tool) back to the user.\n"
         "5. *Crucially: Do NOT run the 'ConcurrentFetch' agent again just to save a file.* Use the responses you already obtained in step 1.\n"
-        "6. If the user asks a follow-up question or provides a new query not related to saving, handle it appropriately, potentially by re-running 'ConcurrentFetch' if new perspectives are needed for a new topic. Be aware that the CEO agent has access to the 'get_industry_insight' tool if the user asks for specific industry insights."
+        "6. If the user asks a follow-up question or provides a new query not related to saving, handle it appropriately, potentially by re-running 'ConcurrentFetch' if new perspectives are needed for a new topic. Be aware that the Information Designer agent has access to interface design tools if the user asks for specific design insights."
     ),
     tools=[save_response_to_file_and_db], 
 )
