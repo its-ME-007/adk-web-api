@@ -69,28 +69,41 @@ if firebase_admin._apps:
     except Exception as e:
         print(f"ERROR connecting to Firestore: {str(e)}")
         print("Firestore client could not be created.")
-
-# --- Tool Functions ---
+# --- Tool Functions (Using Firestore Native Filtering) ---
 def display_saved_prompts() -> str:
     """
-    Retrieves and displays all saved agent responses from the Firebase 'agent_responses' collection.
+    Retrieves and displays all saved agent responses from the Firebase 'agent_responses' collection
+    that were created within the last hour using Firestore native filtering.
 
     Returns:
-        str: A formatted string containing all saved prompts with agent names, timestamps,
-             and response content previews.
+        str: A formatted string containing all saved prompts from the last hour with agent names, 
+             timestamps, and response content previews.
     """
     try:
         if not isinstance(db, firestore.Client):
             return "Error: Firebase database connection not available."
 
+        # Calculate the timestamp for one hour ago using Firestore's server timestamp format
+        from google.cloud.firestore import SERVER_TIMESTAMP
+        import datetime
+        
+        # Use UTC time to match Firestore's timestamp format
+        one_hour_ago = datetime.datetime.utcnow() - datetime.timedelta(hours=1)
+
+        # Query with Firestore native filtering
         agent_responses_ref = db.collection('agent_responses')
-        docs = agent_responses_ref.order_by('created_at', direction=firestore.Query.DESCENDING).stream()
+        docs = agent_responses_ref.where(
+            field_path='created_at', 
+            op_string='>=', 
+            value=one_hour_ago
+        ).order_by('created_at', direction=firestore.Query.DESCENDING).stream()
+        
         docs_list = list(docs)
 
         if not docs_list:
-            return "No saved prompts found in the database."
+            return "No saved prompts found from the last hour in the database."
 
-        formatted_output = "=== AVAILABLE PROMPTS FOR GRADING ===\n\n"
+        formatted_output = f"=== PROMPTS FROM THE LAST HOUR ===\n\n"
 
         for i, doc in enumerate(docs_list, 1):
             doc_data = doc.to_dict()
@@ -98,7 +111,14 @@ def display_saved_prompts() -> str:
             response_content = doc_data.get('response_content', 'No content available')
             created_at = doc_data.get('created_at')
 
-            timestamp_str = created_at.strftime("%Y-%m-%d %H:%M:%S") if created_at else "Unknown time"
+            # Handle Firestore timestamp formatting
+            if hasattr(created_at, 'strftime'):
+                timestamp_str = created_at.strftime("%Y-%m-%d %H:%M:%S")
+            elif hasattr(created_at, 'seconds'):  # Firestore Timestamp object
+                timestamp_str = datetime.datetime.fromtimestamp(created_at.seconds).strftime("%Y-%m-%d %H:%M:%S")
+            else:
+                timestamp_str = str(created_at)
+
             content_preview = response_content[:100] + "..." if len(response_content) > 100 else response_content
 
             formatted_output += f"{i}. Agent: {agent_name} | Saved: {timestamp_str}\n"
@@ -111,7 +131,8 @@ def display_saved_prompts() -> str:
 
 def get_prompt_by_number(prompt_number: int) -> str:
     """
-    Retrieves a specific prompt by its display number.
+    Retrieves a specific prompt by its display number from prompts created within the last hour
+    using Firestore native filtering.
 
     Args:
         prompt_number (int): The number of the prompt as shown in display_saved_prompts()
@@ -123,12 +144,23 @@ def get_prompt_by_number(prompt_number: int) -> str:
         if not isinstance(db, firestore.Client):
             return "Error: Firebase database connection not available."
 
+        import datetime
+        
+        # Use UTC time to match Firestore's timestamp format
+        one_hour_ago = datetime.datetime.utcnow() - datetime.timedelta(hours=1)
+
+        # Query with Firestore native filtering
         agent_responses_ref = db.collection('agent_responses')
-        docs = agent_responses_ref.order_by('created_at', direction=firestore.Query.DESCENDING).stream()
+        docs = agent_responses_ref.where(
+            field_path='created_at', 
+            op_string='>=', 
+            value=one_hour_ago
+        ).order_by('created_at', direction=firestore.Query.DESCENDING).stream()
+        
         docs_list = list(docs)
 
         if not docs_list:
-            return "No saved prompts found in the database."
+            return "No saved prompts found from the last hour in the database."
 
         if prompt_number < 1 or prompt_number > len(docs_list):
             return f"Invalid prompt number. Please select a number between 1 and {len(docs_list)}."
@@ -138,8 +170,17 @@ def get_prompt_by_number(prompt_number: int) -> str:
 
         agent_name = doc_data.get('agent_name', 'Unknown Agent')
         response_content = doc_data.get('response_content', 'No content available')
+        created_at = doc_data.get('created_at')
+        
+        # Handle Firestore timestamp formatting
+        if hasattr(created_at, 'strftime'):
+            timestamp_str = created_at.strftime("%Y-%m-%d %H:%M:%S")
+        elif hasattr(created_at, 'seconds'):  # Firestore Timestamp object
+            timestamp_str = datetime.datetime.fromtimestamp(created_at.seconds).strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            timestamp_str = str(created_at)
 
-        return f"Selected Prompt from {agent_name}:\n\n{response_content}"
+        return f"Selected Prompt from {agent_name} (Saved: {timestamp_str}):\n\n{response_content}"
 
     except Exception as e:
         return f"Error retrieving prompt: {str(e)}"
@@ -160,9 +201,9 @@ def create_score_table(safety_score: str, info_score: str, coordination_score: s
         table = f"""
 | Agent | Score |
 |-------|-------|
-| Safety Officer | {safety_score} |
-| Information Designer | {info_score} |
-| Coordination Planner | {coordination_score} |
+| Technical Feasibility | {safety_score} |
+| Industry Relevance | {info_score} |
+| Innovation | {coordination_score} |
 """
         return table.strip()
     except Exception as e:
@@ -172,19 +213,21 @@ def create_score_table(safety_score: str, info_score: str, coordination_score: s
 agent_display = LlmAgent(
     name="Display_Agent",
     model="gemini-2.0-flash-exp",
-    description="Presents prompts to users in a numbered list and supports selection by number.",
+    description="Presents prompts from the last hour using Firestore native filtering.",
     instruction=(
-        "Your role is to display prompts from the database in a user-friendly numbered format. "
-        "When asked to show prompts, use the display_saved_prompts tool to get all prompts. "
+        "Your role is to display prompts from the database that were created within the last hour using Firestore's native filtering capabilities. "
+        "When asked to show prompts, use the display_saved_prompts tool to get all prompts from the last hour. "
         "Present them clearly with numbers for easy selection. "
         "Do not present the document ID in the display, only the agent name, timestamp, and content preview. "
         "When a user selects a prompt by number, use the get_prompt_by_number tool to retrieve the full content. "
-        "Always format your responses clearly with proper numbering and ask users to pick by number."
+        "Always format your responses clearly with proper numbering and ask users to pick by number. "
+        "The system now uses Firestore's native filtering for better performance and reliability."
     ),
     output_key="display_response",
     tools=[display_saved_prompts, get_prompt_by_number],
 )
 
+# --- TECHNICAL FEASIBILITY AGENT ---
 agent_technical_feasibility = Agent(
     name="Technical_Feasibility_Agent",
     model="gemini-2.0-flash-exp",
@@ -266,7 +309,7 @@ agent_innovation = Agent(
 # --- PARALLEL GRADING AGENT ---
 grading_parallel_agent = ParallelAgent(
     name="ConcurrentGrading",
-    sub_agents=[agent_technical_feasibility,agent_industry_relevance ,agent_innovation ],
+    sub_agents=[agent_technical_feasibility, agent_industry_relevance, agent_innovation],
     description="Runs all grading agents in parallel to evaluate a selected prompt.",
 )
 
@@ -288,9 +331,9 @@ agent_composite_scorer = LlmAgent(
         "Final Average Rating: X.X/10"
         ""
         "Individual Scores:"
-        "• Safety Considerations: X/10"
-        "• Information Clarity: X/10"
-        "• Coordination Planning: X/10"
+        "• Technical Feasibility: X/10"
+        "• Industry Relevance: X/10"
+        "• Innovation: X/10"
         ""
         "Strengths: [highlight best aspects]"
         "Areas for Improvement: [identify weaknesses]"
@@ -313,20 +356,21 @@ root_agent = Agent(
     name="Display_Grading_Agent",
     model="gemini-2.0-flash-exp",
     sub_agents=[agent_display, grading_parallel_agent, agent_composite_scorer],
-    description="Main orchestrator that greets users, manages prompt display, coordinates grading, and provides final reports.",
+    description="Main orchestrator that greets users, manages prompt display, coordinates grading, and provides final reports using Firestore native filtering.",
     instruction=(
         "You are the main Display Grading Agent - a friendly orchestrator for the prompt grading system. "
+        "The system now uses Firestore's native filtering to show only prompts from the last hour. "
         ""
         "GREETING PHASE:"
         "1. Start with a warm, varied greeting."
         "2. Ask the user what they'd like to do (e.g., 'grade all', 'select specific')."
         ""
         "WORKFLOW MANAGEMENT:"
-        "3. Based on user response, use Display Agent to show or select prompts."
+        "3. Based on user response, use Display Agent to show or select prompts from the last hour."
         "4. When a user selects a prompt by number:"
         "   a. Use Display Agent to get the full prompt content."
         "   b. Pass the selected prompt to 'ConcurrentGrading'."
-        "   c. Wait for all grading responses (safety_response, info_response, coordination_response)."
+        "   c. Wait for all grading responses (technical_feasibility_response, industry_relevance_response, innovation_response)."
         ""
         "5. Present the initial grading results with scores on one line and brief feedback on the next line for each agent."
         "   Format as: '[AGENT NAME] SCORE: X/10\n[AGENT NAME] FEEDBACK: [brief feedback]'"
@@ -334,7 +378,7 @@ root_agent = Agent(
         "6. Ask the user: 'Would you like to see the grading results in a table or a detailed composite report?'"
         ""
         "7. If the user asks for 'table':"
-        "   a. Extract the individual scores (just the 'X/10' portion) from safety_response, info_response, and coordination_response."
+        "   a. Extract the individual scores (just the 'X/10' portion) from the responses."
         "   b. Pass these scores as parameters to the Composite Scorer Agent, which will use its create_score_table tool."
         "   c. Present the tabular output to the user."
         ""
@@ -350,7 +394,7 @@ root_agent = Agent(
         "• Present information clearly with proper formatting."
         "• Handle errors gracefully and offer alternatives."
         "• Keep the user engaged."
-        "• When requesting table format, pass the individual scores to the Composite Scorer Agent."
+        "• The system now efficiently filters prompts using Firestore's native capabilities."
     ),
     tools=[],
 )
