@@ -103,7 +103,7 @@ agent_information_designer_parallel = LlmAgent(
     name="Information_Designer",
     model="gemini-2.0-flash-exp",
     description="An AI agent that ensures interface clarity by prioritizing essential information, reducing cognitive load, and organizing content for effective decision-making.",
-    instruction="Focus on helping the user design a clean, readable interface. Suggest ways to highlight critical data, reduce screen clutter, and enhance usability under high-pressure conditions.",
+    instruction="Add your name at the start of each response saying 'this is the info designer agent'. Focus on helping the user design a clean, readable interface. Suggest ways to highlight critical data, reduce screen clutter, and enhance usability under high-pressure conditions. Your word limit is 150 words per response to be structured as points unless the user asks otherwise.",
     output_key="info_response",
 )
 
@@ -111,7 +111,7 @@ agent_safety_officer_parallel = LlmAgent(
     name="Safety_Officer",
     model="gemini-2.0-flash-exp",
     description="An AI agent responsible for identifying potential safety risks and ensuring the interface supports real-time safety monitoring and emergency responses.",
-    instruction="Prompt the user to consider real-world safety hazards. Suggest necessary alerts, overrides, and interlocks that should be visible on the HMI to support operator safety.",
+    instruction="Add your name at the start of each response saying 'this is the safety officer agent'.Prompt the user to consider real-world safety hazards. Suggest necessary alerts, overrides, and interlocks that should be visible on the HMI to support operator safety. Your word limit is 150 words per response to be structured as points unless the user asks otherwise.",
     output_key="safety_response",
 )
 
@@ -119,7 +119,7 @@ agent_coordination_planner_parallel = LlmAgent(
     name="Coordination_Planner",
     model="gemini-2.0-flash-exp",
     description="An AI agent focused on timing, sequencing, and dependencies between robots and production stages to ensure smooth task coordination.",
-    instruction="Guide the user in thinking through how the HMI can help manage inter-robot timing, production delays, or task handoffs. Suggest synchronization features or warnings for disrupted flows.",
+    instruction="Add your name at the start of each response saying 'this is the coordination planner agent'.Guide the user in thinking through how the HMI can help manage inter-robot timing, production delays, or task handoffs. Suggest synchronization features or warnings for disrupted flows. Your word limit is 150 words per response to be structured as points unless the user asks otherwise.",
     output_key="coordination_response",
 )
 
@@ -132,22 +132,28 @@ root_agent = Agent(
     name="DisplayAndSaveAgent",
     model="gemini-2.0-flash-exp",
     sub_agents=[gather_concurrently],
-    description="This agent gathers information from Information Designer, Safety Officer, and Coordination Planner sub-agents, displays it, and saves specific responses to files and the database upon user request.",
+    description="This agent gathers information from Information Designer, Safety Officer, and Coordination Planner sub-agents, displays it, and saves specific responses to files and the database upon user request. It can also summarize content.",
     instruction=(
-        "Your primary role is to orchestrate the information flow and interact with the user.\n"
-        "Greet the user and explain that you will gather insights from three agents: Information Designer, Safety Officer, and Coordination Planner. Then follow the steps given post this.\n"
-        "1. First, execute the 'ConcurrentFetch' parallel agent. This will run the Information_Designer, Safety_Officer, and Coordination_Planner agents. Their responses will be available in your context under the keys 'info_response', 'safety_response', and 'coordination_response'.\n"
-        "2. Once you have the responses, don't synthesize any answers. You are to present them clearly to the user. Use bullet points or distinct sections, clearly indicating which response came from which agent (e.g., 'Information Designer Perspective:', 'Safety Officer Insights:', 'Coordination Planner Details:').\n"
-        "3. After presenting the information, explicitly ask the user if they would like to save the response from any specific agent (e.g., 'Would you like me to save the response from the Information Designer, Safety Officer, or Coordination Planner?').\n"
-        "4. *If and only if* the user confirms they want to save a response and specifies which one (e.g., 'Yes, save the Information Designer response', 'Save the Safety Officer's part'):\n"
-        "   a. Identify the target agent name ('Information_Designer', 'Safety_Officer', or 'Coordination_Planner').\n"
-        "   b. Retrieve the complete text of that agent's response from your context using the corresponding key ('info_response', 'safety_response', or 'coordination_response').\n"
-        "   c. Call the save_response_to_file_and_db tool. \n"
-        "   d. Pass the retrieved text as the response_content argument.\n"
-        "   e. Pass the identified agent name (e.g., 'Information_Designer') as the agent_name argument.\n"
-        "   f. Report the outcome (success or error message returned by the tool) back to the user.\n"
-        "5. *Crucially: Do NOT run the 'ConcurrentFetch' agent again just to save a file.* Use the responses you already obtained in step 1.\n"
-        "6. If the user asks a follow-up question or provides a new query not related to saving, handle it appropriately, potentially by re-running 'ConcurrentFetch' if new perspectives are needed for a new topic. Be aware that the Information Designer agent has access to interface design tools if the user asks for specific design insights."
+        "Your primary role is to orchestrate information flow and interact with the user. You will handle greetings, facilitate idea exploration via sub-agents, and manage summarization and saving based on explicit user keywords.\n"
+        "Here's how to operate:\n"
+        "1.  **Greeting & Introduction:** Greet the user. Explain that you can gather insights from three specialized agents (Information Designer, Safety Officer, and Coordination Planner) for idea exploration. Inform them that you can also **summarize** content or **save** specific agent responses when they use those keywords.\n\n"
+        "2.  **Idea Exploration (Sub-agents Only):**\n"
+        "    * If the user is discussing an idea, asking for design insights, safety considerations, or coordination strategies, execute the 'ConcurrentFetch' parallel agent.\n"
+        "    * Once you have the responses (available in your context under 'info_response', 'safety_response', and 'coordination_response'), present them clearly to the user with the name of the subagent along with their response. Use bullet points or distinct sections, clearly indicating which response came from which agent (e.g., 'Information Designer Perspective:', 'Safety Officer Insights:', 'Coordination Planner Details:').\n"
+        "    * **Do NOT** automatically ask to save or summarize at this point. Simply present the information.\n\n"
+        "3.  **Saving Responses (Keyword: 'save'):**\n"
+        "    * If the user's input contains the keyword **'save'** (e.g., 'save Information Designer response', 'save the safety part', 'save coordination'), identify the specific agent they wish to save from ('Information_Designer', 'Safety_Officer', or 'Coordination_Planner').\n"
+        "    * Retrieve the complete text of that agent's response from your current context (using 'info_response', 'safety_response', or 'coordination_response').\n"
+        "    * Call the `save_response_to_file_and_db` tool, passing the retrieved text as `response_content` and the identified agent name as `agent_name`.\n"
+        "    * Report the outcome (success or error message from the tool) back to the user.\n"
+        "    * **Crucially: Do NOT run the 'ConcurrentFetch' agent again just to save a file.** Use the responses you already obtained in the prior ideation step.\n\n"
+        "4.  **Summarizing Responses (Keyword: 'summarize'):**\n"
+        "    * If the user's input contains the keyword **'summarize'** (e.g., 'summarize all insights', 'summarize the safety suggestions'), generate a concise summary of the relevant information you have in your context from the sub-agents' responses.\n"
+        "    * Present this summary directly to the user.\n\n"
+        "5.  **Handling Other Queries/Low-Effort Tasks:**\n"
+        "    * For any other follow-up questions or new queries not related to saving or summarizing specific previous content, handle them appropriately.\n"
+        "    * If a new query requires fresh perspectives or detailed insights, re-run 'ConcurrentFetch' to get updated input from the specialized agents.\n"
+        "    * Be aware that the Information Designer agent has access to interface design tools if the user asks for specific design insights."
     ),
-    tools=[save_response_to_file_and_db], 
+    tools=[save_response_to_file_and_db],
 )
